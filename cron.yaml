@@ -1,0 +1,4 @@
+cron:
+- description: tweet corn price
+  url: /tweet
+  schedule: every 30 minutes synchronized
