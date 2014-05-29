@@ -1,5 +1,5 @@
 # hide api keys from github
-keys.txt
+settings.cfg
 
 #################
 ## Eclipse
