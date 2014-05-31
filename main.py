@@ -29,13 +29,9 @@ def tweet(status):
 	ACCESS_TOKEN_SECRET = config.get('API Information', 'ACCESS_TOKEN_SECRET')
 
 	auth = tweepy.OAuthHandler(CONSUMER_KEY, CONSUMER_SECRET)
-	logging.info('auth set')
 	auth.set_access_token(ACCESS_TOKEN_KEY, ACCESS_TOKEN_SECRET)
-	logging.info('access token set, trying tweepy.api(auth)')
 	api = tweepy.API(auth)
-	logging.info('tried tweepy.api(auth), trying api.update_status(status)')
 	result = api.update_status(status)
-	logging.info('tried api.update_status')
 
 class MainHandler(webapp2.RequestHandler):
 	def get(self):
