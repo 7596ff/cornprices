@@ -7,6 +7,8 @@ import jinja2
 import string
 import tweepy
 import logging
+import urllib
+import re
 
 from tweepy import *
 
@@ -42,8 +44,25 @@ class MainHandler(webapp2.RequestHandler):
 
 class sendTweet(webapp2.RequestHandler):
 	def post(self):
+		site_ = urllib.urlopen("http://www.quotecorn.com/")
+		site = site_.read()
+		site_.close()
+
+		price = re.findall(r"<strong>.+<\/strong>", site)
+		updated = re.findall(r"<span class=\"style15\">Corn Quote Updated.+<\/span>", site)
+
+		price = price[0]
+		updated = updated[0]
+
+		price = string.split(price, " ")[1]
+		updated = string.lstrip(updated, "<span class=\"style15\">Corn Quote Updated ")
+		updated = string.rstrip(updated, "</span>")
+
+		logging.info(price)
+		logging.info(updated)
+
 		try:
-			tweet("Corn Prices")
+			tweet(price + " cents as of " + updated)
 		except TweepError as te:
 			logging.info(te)
 
