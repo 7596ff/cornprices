@@ -1,25 +1,55 @@
-#!/usr/bin/env python
-#
-# Copyright 2007 Google Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
+# Copyright (c) 2014 Brendan McCarthy
+
+import os
 import webapp2
+import ConfigParser
+import jinja2
+import string
+import tweepy
+import logging
+
+from tweepy import *
+
+JINJA_ENVIRONMENT = jinja2.Environment(
+	loader     = jinja2.FileSystemLoader(os.path.dirname(__file__)),
+	extensions = ['jinja2.ext.autoescape'],
+	autoescape = False)
+
+def tweet(status):
+	config = ConfigParser.RawConfigParser()
+	config.read('settings.cfg')
+	
+	# http://dev.twitter.com/apps/myappid
+	CONSUMER_KEY = config.get('API Information', 'CONSUMER_KEY')
+	CONSUMER_SECRET = config.get('API Information', 'CONSUMER_SECRET')
+	# http://dev.twitter.com/apps/myappid/my_token
+	ACCESS_TOKEN_KEY = config.get('API Information', 'ACCESS_TOKEN_KEY')
+	ACCESS_TOKEN_SECRET = config.get('API Information', 'ACCESS_TOKEN_SECRET')
+
+	auth = tweepy.OAuthHandler(CONSUMER_KEY, CONSUMER_SECRET)
+	logging.info('auth set')
+	auth.set_access_token(ACCESS_TOKEN_KEY, ACCESS_TOKEN_SECRET)
+	logging.info('access token set, trying tweepy.api(auth)')
+	api = tweepy.API(auth)
+	logging.info('tried tweepy.api(auth), trying api.update_status(status)')
+	result = api.update_status(status)
+	logging.info('tried api.update_status')
 
 class MainHandler(webapp2.RequestHandler):
-    def get(self):
-        self.response.write('Hello world!')
+	def get(self):
+		template = JINJA_ENVIRONMENT.get_template('index.html')
+		self.response.write(template.render())
+
+class sendTweet(webapp2.RequestHandler):
+	def post(self):
+		try:
+			tweet("Corn Prices")
+		except TweepError as te:
+			logging.info(te)
+
+		self.redirect("/")
 
 app = webapp2.WSGIApplication([
-    ('/', MainHandler)
+    ('/', MainHandler),
+    ('/tweet', sendTweet),
 ], debug=True)
