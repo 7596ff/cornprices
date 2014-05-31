@@ -1,465 +1,728 @@
 # Tweepy
-# Copyright 2009 Joshua Roesslein
-# See LICENSE
+# Copyright 2009-2010 Joshua Roesslein
+# See LICENSE for details.
 
 import os
 import mimetypes
 
-from . binder import bind_api
-from . error import TweepError
-from . auth import BasicAuthHandler, OAuthHandler
-from tweepy.parsers import *
+from tweepy.binder import bind_api
+from tweepy.error import TweepError
+from tweepy.parsers import ModelParser
+from tweepy.utils import list_to_csv
 
 
 class API(object):
     """Twitter API"""
 
-    def __init__(self, auth_handler=None, host='twitter.com', cache=None,
-            secure=False, api_root='', validate=True):
-        # you may access these freely
-        self.auth_handler = auth_handler
+    def __init__(self, auth_handler=None,
+            host='api.twitter.com', search_host='search.twitter.com',
+             cache=None, secure=True, api_root='/1.1', search_root='',
+            retry_count=0, retry_delay=0, retry_errors=None, timeout=60,
+            parser=None, compression=False, wait_on_rate_limit=False,
+            wait_on_rate_limit_notify=False):
+        self.auth = auth_handler
         self.host = host
+        self.search_host = search_host
         self.api_root = api_root
+        self.search_root = search_root
         self.cache = cache
         self.secure = secure
-        self.validate = validate
+        self.compression = compression
+        self.retry_count = retry_count
+        self.retry_delay = retry_delay
+        self.retry_errors = retry_errors
+        self.timeout = timeout
+        self.wait_on_rate_limit = wait_on_rate_limit
+        self.wait_on_rate_limit_notify = wait_on_rate_limit_notify
+        self.parser = parser or ModelParser()
 
-        # not a good idea to touch these
-        self._username = None
-
-    @staticmethod
-    def new(auth='basic', *args, **kargs):
-        if auth == 'basic':
-            return API(BasicAuthHandler(*args, **kargs))
-        elif auth == 'oauth':
-            return API(OAuthHandler(*args, **kargs))
-        else:
-            raise TweepError('Invalid auth type')
-
-    """Get public timeline"""
-    public_timeline = bind_api(
-        path = '/statuses/public_timeline.json',
-        parser = parse_statuses,
-        allowed_param = []
-    )
-
-    """Get friends timeline"""
-    friends_timeline = bind_api(
-        path = '/statuses/friends_timeline.json',
-        parser = parse_statuses,
-        allowed_param = ['since_id', 'max_id', 'count', 'page'],
+    """ statuses/home_timeline """
+    home_timeline = bind_api(
+        path = '/statuses/home_timeline.json',
+        payload_type = 'status', payload_list = True,
+        allowed_param = ['since_id', 'max_id', 'count'],
         require_auth = True
     )
 
-    """Get user timeline"""
+    """ statuses/user_timeline """
     user_timeline = bind_api(
         path = '/statuses/user_timeline.json',
-        parser = parse_statuses,
+        payload_type = 'status', payload_list = True,
         allowed_param = ['id', 'user_id', 'screen_name', 'since_id',
-                          'max_id', 'count', 'page']
+                          'max_id', 'count', 'include_rts']
     )
 
-    """Get mentions"""
-    mentions = bind_api(
-        path = '/statuses/mentions.json',
-        parser = parse_statuses,
-        allowed_param = ['since_id', 'max_id', 'count', 'page'],
+    """ statuses/mentions """
+    mentions_timeline = bind_api(
+        path = '/statuses/mentions_timeline.json',
+        payload_type = 'status', payload_list = True,
+        allowed_param = ['since_id', 'max_id', 'count'],
         require_auth = True
     )
 
-    """Show status"""
+    """/related_results/show/:id.format"""
+    related_results = bind_api(
+        path = '/related_results/show/{id}.json',
+        payload_type = 'relation', payload_list = True,
+        allowed_param = ['id'],
+        require_auth = False
+    )
+
+    """ statuses/retweets_of_me """
+    retweets_of_me = bind_api(
+        path = '/statuses/retweets_of_me.json',
+        payload_type = 'status', payload_list = True,
+        allowed_param = ['since_id', 'max_id', 'count'],
+        require_auth = True
+    )
+
+    """ statuses/show """
     get_status = bind_api(
         path = '/statuses/show.json',
-        parser = parse_status,
+        payload_type = 'status',
         allowed_param = ['id']
     )
 
-    """Update status"""
+    """ statuses/update """
     update_status = bind_api(
         path = '/statuses/update.json',
         method = 'POST',
-        parser = parse_status,
-        allowed_param = ['status', 'in_reply_to_status_id'],
+        payload_type = 'status',
+        allowed_param = ['status', 'in_reply_to_status_id', 'lat', 'long', 'source', 'place_id'],
         require_auth = True
     )
 
-    """Destroy status"""
+    """ statuses/update_with_media """
+    def update_with_media(self, filename, *args, **kwargs):
+        f = kwargs.pop('file', None)
+        headers, post_data = API._pack_image(filename, 3072, form_field='media[]', f=f)
+        kwargs.update({'headers': headers, 'post_data': post_data})
+
+        return bind_api(
+            path='/statuses/update_with_media.json',
+            method = 'POST',
+            payload_type='status',
+            allowed_param = [
+                'status', 'possibly_sensitive', 'in_reply_to_status_id', 'lat', 'long',
+                'place_id', 'display_coordinates'
+            ],
+            require_auth=True
+        )(self, *args, **kwargs)
+
+    """ statuses/destroy """
     destroy_status = bind_api(
-        path = '/statuses/destroy.json',
-        method = 'DELETE',
-        parser = parse_status,
+        path = '/statuses/destroy/{id}.json',
+        method = 'POST',
+        payload_type = 'status',
         allowed_param = ['id'],
         require_auth = True
     )
 
-    """Show user"""
+    """ statuses/retweet """
+    retweet = bind_api(
+        path = '/statuses/retweet/{id}.json',
+        method = 'POST',
+        payload_type = 'status',
+        allowed_param = ['id'],
+        require_auth = True
+    )
+
+    """ statuses/retweets """
+    retweets = bind_api(
+        path = '/statuses/retweets/{id}.json',
+        payload_type = 'status', payload_list = True,
+        allowed_param = ['id', 'count'],
+        require_auth = True
+    )
+
+    retweeters = bind_api(
+        path = '/statuses/retweeters/ids.json',
+        payload_type = 'ids',
+        allowed_param = ['id', 'cursor', 'stringify_ids']
+    )
+
+    """ users/show """
     get_user = bind_api(
         path = '/users/show.json',
-        parser = parse_user,
+        payload_type = 'user',
         allowed_param = ['id', 'user_id', 'screen_name']
     )
 
-    """Get authenticated user"""
-    def me(self):
-        # if username not fetched, go get it...
-        if self._username is None:
-            if self.auth_handler is None:
-                raise TweepError('Authentication required')
-
-            try:
-                user = bind_api(
-                    path = '/account/verify_credentials.json',
-                    parser = parse_user
-                )(self)
-            except TweepError, e:
-                raise TweepError('Failed to fetch username: %s' % e)
-
-            self._username = user.screen_name
-
-        return self.get_user(screen_name=self._username)
-
-    """Show friends"""
-    friends = bind_api(
-        path = '/statuses/friends.json',
-        parser = parse_users,
-        allowed_param = ['id', 'user_id', 'screen_name', 'page']
+    ''' statuses/oembed '''
+    get_oembed = bind_api(
+        path = '/statuses/oembed.json',
+        payload_type = 'json',
+        allowed_param = ['id', 'url', 'maxwidth', 'hide_media', 'omit_script', 'align', 'related', 'lang']
     )
 
-    """Show followers"""
-    followers = bind_api(
-        path = '/statuses/followers.json',
-        parser = parse_users,
-        allowed_param = ['id', 'user_id', 'screen_name', 'page'],
+    """ Perform bulk look up of users from user ID or screenname """
+    def lookup_users(self, user_ids=None, screen_names=None):
+        return self._lookup_users(list_to_csv(user_ids), list_to_csv(screen_names))
+
+    _lookup_users = bind_api(
+        path = '/users/lookup.json',
+        payload_type = 'user', payload_list = True,
+        allowed_param = ['user_id', 'screen_name'],
+    )
+
+    """ Get the authenticated user """
+    def me(self):
+        return self.get_user(screen_name=self.auth.get_username())
+
+    """ users/search """
+    search_users = bind_api(
+        path = '/users/search.json',
+        payload_type = 'user', payload_list = True,
+        require_auth = True,
+        allowed_param = ['q', 'count', 'page']
+    )
+
+    """ users/suggestions/:slug """
+    suggested_users = bind_api(
+        path = '/users/suggestions/{slug}.json',
+        payload_type = 'user', payload_list = True,
+        require_auth = True,
+        allowed_param = ['slug', 'lang']
+    )
+
+    """ users/suggestions """
+    suggested_categories = bind_api(
+        path = '/users/suggestions.json',
+        payload_type = 'category', payload_list = True,
+        allowed_param = ['lang'],
         require_auth = True
     )
 
-    """Get direct messages"""
+    """ users/suggestions/:slug/members """
+    suggested_users_tweets = bind_api(
+        path = '/users/suggestions/{slug}/members.json',
+        payload_type = 'status', payload_list = True,
+        allowed_param = ['slug'],
+        require_auth = True
+    )
+
+    """ direct_messages """
     direct_messages = bind_api(
         path = '/direct_messages.json',
-        parser = parse_directmessages,
-        allowed_param = ['since_id', 'max_id', 'count', 'page'],
+        payload_type = 'direct_message', payload_list = True,
+        allowed_param = ['since_id', 'max_id', 'count'],
         require_auth = True
     )
 
-    """Sent direct messages"""
-    sent_direct_messages = bind_api(
-        path = '/direct_messages/sent.json',
-        parser = parse_directmessages,
-        allowed_param = ['since_id', 'max_id', 'count', 'page'],
-        require_auth = True
-    )
-
-    """Send direct message"""
-    send_direct_message = bind_api(
-        path = '/direct_messages/new.json',
-        method = 'POST',
-        parser = parse_dm,
-        allowed_param = ['user', 'text'],
-        require_auth = True
-    )
-
-    """Destroy direct message"""
-    destroy_direct_message = bind_api(
-        path = '/direct_messages/destroy.json',
-        method = 'DELETE',
-        parser = parse_dm,
+    """ direct_messages/show """
+    get_direct_message = bind_api(
+        path = '/direct_messages/show/{id}.json',
+        payload_type = 'direct_message',
         allowed_param = ['id'],
         require_auth = True
     )
 
-    """Create friendship"""
+    """ direct_messages/sent """
+    sent_direct_messages = bind_api(
+        path = '/direct_messages/sent.json',
+        payload_type = 'direct_message', payload_list = True,
+        allowed_param = ['since_id', 'max_id', 'count', 'page'],
+        require_auth = True
+    )
+
+    """ direct_messages/new """
+    send_direct_message = bind_api(
+        path = '/direct_messages/new.json',
+        method = 'POST',
+        payload_type = 'direct_message',
+        allowed_param = ['user', 'screen_name', 'user_id', 'text'],
+        require_auth = True
+    )
+
+    """ direct_messages/destroy """
+    destroy_direct_message = bind_api(
+        path = '/direct_messages/destroy.json',
+        method = 'DELETE',
+        payload_type = 'direct_message',
+        allowed_param = ['id'],
+        require_auth = True
+    )
+
+    """ friendships/create """
     create_friendship = bind_api(
         path = '/friendships/create.json',
         method = 'POST',
-        parser = parse_user,
+        payload_type = 'user',
         allowed_param = ['id', 'user_id', 'screen_name', 'follow'],
         require_auth = True
     )
 
-    """Destroy friendship"""
+    """ friendships/destroy """
     destroy_friendship = bind_api(
         path = '/friendships/destroy.json',
         method = 'DELETE',
-        parser = parse_user,
+        payload_type = 'user',
         allowed_param = ['id', 'user_id', 'screen_name'],
         require_auth = True
     )
 
-    """Check if friendship exists"""
-    exists_friendship = bind_api(
-        path = '/friendships/exists.json',
-        parser = parse_json,
-        allowed_param = ['user_a', 'user_b']
-    )
-
-    """Show friendship details"""
+    """ friendships/show """
     show_friendship = bind_api(
         path = '/friendships/show.json',
-        parser = parse_friendship,
+        payload_type = 'friendship',
         allowed_param = ['source_id', 'source_screen_name',
                           'target_id', 'target_screen_name']
     )
 
-    """Get list of IDs of users the specified user is following"""
+    """ Perform bulk look up of friendships from user ID or screenname """
+    def lookup_friendships(self, user_ids=None, screen_names=None):
+        return self._lookup_friendships(list_to_csv(user_ids), list_to_csv(screen_names))
+
+    _lookup_friendships = bind_api(
+        path = '/friendships/lookup.json',
+        payload_type = 'relationship', payload_list = True,
+        allowed_param = ['user_id', 'screen_name'],
+        require_auth = True
+    )
+
+
+    """ friends/ids """
     friends_ids = bind_api(
         path = '/friends/ids.json',
-        parser = parse_json,
-        allowed_param = ['id', 'user_id', 'screen_name', 'page']
+        payload_type = 'ids',
+        allowed_param = ['id', 'user_id', 'screen_name', 'cursor']
     )
 
-    """Get list of IDs of users following the specified user"""
+    """ friends/list """
+    friends = bind_api(
+        path = '/friends/list.json',
+        payload_type = 'user', payload_list = True,
+        allowed_param = ['id', 'user_id', 'screen_name', 'cursor']
+    )
+
+    """ friendships/incoming """
+    friendships_incoming = bind_api(
+        path = '/friendships/incoming.json',
+        payload_type = 'ids',
+        allowed_param = ['cursor']
+    )
+
+    """ friendships/outgoing"""
+    friendships_outgoing = bind_api(
+        path = '/friendships/outgoing.json',
+        payload_type = 'ids',
+        allowed_param = ['cursor']
+    )
+
+    """ followers/ids """
     followers_ids = bind_api(
         path = '/followers/ids.json',
-        parser = parse_json,
-        allowed_param = ['id', 'user_id', 'screen_name', 'page']
+        payload_type = 'ids',
+        allowed_param = ['id', 'user_id', 'screen_name', 'cursor']
     )
 
-    """Verify credentials"""
-    def verify_credentials(self):
+    """ followers/list """
+    followers = bind_api(
+        path = '/followers/list.json',
+        payload_type = 'user', payload_list = True,
+        allowed_param = ['id', 'user_id', 'screen_name', 'cursor', 'count',
+            'skip_status', 'include_user_entities']
+    )
+
+    """ account/verify_credentials """
+    def verify_credentials(self, **kargs):
         try:
             return bind_api(
                 path = '/account/verify_credentials.json',
-                parser = parse_return_true,
-                require_auth = True
-            )(self)
-        except TweepError:
-            return False
+                payload_type = 'user',
+                require_auth = True,
+                allowed_param = ['include_entities', 'skip_status'],
+            )(self, **kargs)
+        except TweepError as e:
+            if e.response and e.response.status == 401:
+                return False
+            raise
 
-    """Rate limit status"""
+    """ account/rate_limit_status """
     rate_limit_status = bind_api(
-        path = '/account/rate_limit_status.json',
-        parser = parse_json
+        path = '/application/rate_limit_status.json',
+        payload_type = 'json',
+        allowed_param = ['resources'],
+        use_cache = False
     )
 
-    """Update delivery device"""
+    """ account/update_delivery_device """
     set_delivery_device = bind_api(
         path = '/account/update_delivery_device.json',
         method = 'POST',
         allowed_param = ['device'],
-        parser = parse_user,
+        payload_type = 'user',
         require_auth = True
     )
 
-    """Update profile colors"""
+    """ account/update_profile_colors """
     update_profile_colors = bind_api(
         path = '/account/update_profile_colors.json',
         method = 'POST',
-        parser = parse_user,
+        payload_type = 'user',
         allowed_param = ['profile_background_color', 'profile_text_color',
                           'profile_link_color', 'profile_sidebar_fill_color',
                           'profile_sidebar_border_color'],
         require_auth = True
     )
 
-    """Update profile image"""
-    def update_profile_image(self, filename):
-        headers, post_data = _pack_image(filename, 700)
-        bind_api(
+    """ account/update_profile_image """
+    def update_profile_image(self, filename, file=None):
+        headers, post_data = API._pack_image(filename, 700, f=file)
+        return bind_api(
             path = '/account/update_profile_image.json',
             method = 'POST',
-            parser = parse_none,
+            payload_type = 'user',
             require_auth = True
         )(self, post_data=post_data, headers=headers)
 
-    """Update profile background image"""
+    """ account/update_profile_background_image """
     def update_profile_background_image(self, filename, *args, **kargs):
-        headers, post_data = _pack_image(filename, 800)
+        f = kargs.pop('file', None)
+        headers, post_data = API._pack_image(filename, 800, f=f)
         bind_api(
             path = '/account/update_profile_background_image.json',
             method = 'POST',
-            parser = parse_none,
+            payload_type = 'user',
             allowed_param = ['tile'],
             require_auth = True
         )(self, post_data=post_data, headers=headers)
 
-    """Update profile"""
+    """ account/update_profile_banner """
+    def update_profile_banner(self, filename, *args, **kargs):
+        f = kargs.pop('file', None)
+        headers, post_data = API._pack_image(filename, 700, form_field="banner", f=f)
+        bind_api(
+            path = '/account/update_profile_banner.json',
+            method = 'POST',
+            allowed_param = ['width', 'height', 'offset_left', 'offset_right'],
+            require_auth = True
+        )(self, post_data=post_data, headers=headers)
+
+
+    """ account/update_profile """
     update_profile = bind_api(
         path = '/account/update_profile.json',
         method = 'POST',
-        parser = parse_user,
-        allowed_param = ['name', 'email', 'url', 'location', 'description'],
+        payload_type = 'user',
+        allowed_param = ['name', 'url', 'location', 'description'],
         require_auth = True
     )
 
-    """Get favorites"""
+    """ favorites """
     favorites = bind_api(
-        path = '/favorites.json',
-        parser = parse_statuses,
-        allowed_param = ['id', 'page']
+        path = '/favorites/list.json',
+        payload_type = 'status', payload_list = True,
+        allowed_param = ['screen_name', 'user_id', 'max_id', 'count', 'since_id', 'max_id']
     )
 
-    """Create favorite"""
+    """ favorites/create """
     create_favorite = bind_api(
         path = '/favorites/create.json',
         method = 'POST',
-        parser = parse_status,
+        payload_type = 'status',
         allowed_param = ['id'],
         require_auth = True
     )
 
-    """Destroy favorite"""
+    """ favorites/destroy """
     destroy_favorite = bind_api(
         path = '/favorites/destroy.json',
-        method = 'DELETE',
-        parser = parse_status,
+        method = 'POST',
+        payload_type = 'status',
         allowed_param = ['id'],
         require_auth = True
     )
 
-    """Enable device notifications"""
-    enable_notifications = bind_api(
-        path = '/notifications/follow.json',
-        method = 'POST',
-        parser = parse_user,
-        allowed_param = ['id', 'user_id', 'screen_name'],
-        require_auth = True
-    )
-
-    """Disable device notifications"""
-    disable_notifications = bind_api(
-        path = '/notifications/leave.json',
-        method = 'POST',
-        parser = parse_user,
-        allowed_param = ['id', 'user_id', 'screen_name'],
-        require_auth = True
-    )
-
-    """Create a block"""
+    """ blocks/create """
     create_block = bind_api(
         path = '/blocks/create.json',
         method = 'POST',
-        parser = parse_user,
-        allowed_param = ['id'],
+        payload_type = 'user',
+        allowed_param = ['id', 'user_id', 'screen_name'],
         require_auth = True
     )
 
-    """Destroy a block"""
+    """ blocks/destroy """
     destroy_block = bind_api(
         path = '/blocks/destroy.json',
         method = 'DELETE',
-        parser = parse_user,
+        payload_type = 'user',
+        allowed_param = ['id', 'user_id', 'screen_name'],
+        require_auth = True
+    )
+
+    """ blocks/blocking """
+    blocks = bind_api(
+        path = '/blocks/list.json',
+        payload_type = 'user', payload_list = True,
+        allowed_param = ['cursor'],
+        require_auth = True
+    )
+
+    """ blocks/blocking/ids """
+    blocks_ids = bind_api(
+        path = '/blocks/ids.json',
+        payload_type = 'json',
+        require_auth = True
+    )
+
+    """ report_spam """
+    report_spam = bind_api(
+        path = '/users/report_spam.json',
+        method = 'POST',
+        payload_type = 'user',
+        allowed_param = ['user_id', 'screen_name'],
+        require_auth = True
+    )
+
+    """ saved_searches """
+    saved_searches = bind_api(
+        path = '/saved_searches/list.json',
+        payload_type = 'saved_search', payload_list = True,
+        require_auth = True
+    )
+
+    """ saved_searches/show """
+    get_saved_search = bind_api(
+        path = '/saved_searches/show/{id}.json',
+        payload_type = 'saved_search',
         allowed_param = ['id'],
         require_auth = True
     )
 
-    """Check if block exists"""
-    def exists_block(self, **kargs):
-        try:
-            bind_api(
-                path = '/blocks/exists.json',
-                parser = parse_none,
-                allowed_param = ['id', 'user_id', 'screen_name'],
-                require_auth = True
-            )(self, **kargs)
-        except TweepError:
-            return False
-
-        return True
-
-    """Get list of users that are blocked"""
-    blocks = bind_api(
-        path = '/blocks/blocking.json',
-        parser = parse_users,
-        allowed_param = ['page'],
-        require_auth = True
-    )
-
-    """Get list of ids of users that are blocked"""
-    blocks_ids = bind_api(
-        path = '/blocks/blocking/ids.json',
-        parser = parse_json,
-        require_auth = True
-    )
-
-    """Get list of saved searches"""
-    saved_searches = bind_api(
-        path = '/saved_searches.json',
-        parser = parse_saved_searches,
-        require_auth = True
-    )
-
-    """Get a single saved search by id"""
-    def get_saved_search(self, id):
-        return bind_api(
-            path = '/saved_searches/show/%s.json' % id,
-            parser = parse_saved_search,
-            require_auth = True
-        )(self)
-
-    """Create new saved search"""
+    """ saved_searches/create """
     create_saved_search = bind_api(
         path = '/saved_searches/create.json',
         method = 'POST',
-        parser = parse_saved_search,
+        payload_type = 'saved_search',
         allowed_param = ['query'],
         require_auth = True
     )
 
-    """Destroy a saved search"""
-    def destroy_saved_search(self, id):
-        return bind_api(
-            path = '/saved_searches/destroy/%s.json' % id,
-            method = 'DELETE',
-            parser = parse_saved_search,
-            allowed_param = ['id'],
-            require_auth = True
-        )(self)
+    """ saved_searches/destroy """
+    destroy_saved_search = bind_api(
+        path = '/saved_searches/destroy/{id}.json',
+        method = 'POST',
+        payload_type = 'saved_search',
+        allowed_param = ['id'],
+        require_auth = True
+    )
 
-    def test(self):
-        return bind_api(
-            path = '/help/test.json',
-            parser = parse_return_true
-        )(self)
+    create_list = bind_api(
+        path = '/lists/create.json',
+        method = 'POST',
+        payload_type = 'list',
+        allowed_param = ['name', 'mode', 'description'],
+        require_auth = True
+    )
 
-    """Search API"""
+    destroy_list = bind_api(
+        path = '/lists/destroy.json',
+        method = 'POST',
+        payload_type = 'list',
+        allowed_param = ['owner_screen_name', 'owner_id', 'list_id', 'slug'],
+        require_auth = True
+    )
 
-    def search(self, *args, **kargs):
-        return bind_api(
-            host = 'search.' + self.host,
-            path = '/search.json',
-            parser = parse_search_results,
-            allowed_param = ['q', 'lang', 'rpp', 'page', 'since_id', 'geocode', 'show_user'],
-        )(self, *args, **kargs)
+    update_list = bind_api(
+        path = '/lists/update.json',
+        method = 'POST',
+        payload_type = 'list',
+        allowed_param = ['list_id', 'slug', 'name', 'mode', 'description', 'owner_screen_name', 'owner_id'],
+        require_auth = True
+    )
 
-    def trends(self):
-        return bind_api(
-            host = 'search.' + self.host,
-            path = '/trends.json',
-            parser = parse_json
-        )(self)
+    lists_all = bind_api(
+        path = '/lists/list.json',
+        payload_type = 'list', payload_list = True,
+        allowed_param = ['screen_name', 'user_id'],
+        require_auth = True
+    )
 
-    def trends_current(self, *args, **kargs):
-        return bind_api(
-            host = 'search.' + self.host,
-            path = '/trends/current.json',
-            parser = parse_json,
-            allowed_param = ['exclude']
-        )(self, *args, **kargs)
+    lists_memberships = bind_api(
+        path = '/lists/memberships.json',
+        payload_type = 'list', payload_list = True,
+        allowed_param = ['screen_name', 'user_id', 'filter_to_owned_lists', 'cursor'],
+        require_auth = True
+    )
 
-    def trends_daily(self, *args, **kargs):
-        return bind_api(
-            host = "search." + self.host,
-            path = '/trends/daily.json',
-            parser = parse_json,
-            allowed_param = ['date', 'exclude']
-        )(self, *args, **kargs)
+    lists_subscriptions = bind_api(
+        path = '/lists/subscriptions.json',
+        payload_type = 'list', payload_list = True,
+        allowed_param = ['screen_name', 'user_id', 'cursor'],
+        require_auth = True
+    )
 
-    def trends_weekly(self, *args, **kargs):
-        return bind_api(
-            host = "search." + self.host,
-            path = '/trends/weekly.json',
-            parser = parse_json,
-            allowed_param = ['date', 'exclude']
-        )(self, *args, **kargs)
+    list_timeline = bind_api(
+        path = '/lists/statuses.json',
+        payload_type = 'status', payload_list = True,
+        allowed_param = ['owner_screen_name', 'slug', 'owner_id', 'list_id', 'since_id', 'max_id', 'count', 'include_rts']
+    )
 
-    def _pack_image(filename, max_size):
+    get_list = bind_api(
+        path = '/lists/show.json',
+        payload_type = 'list',
+        allowed_param = ['owner_screen_name', 'owner_id', 'slug', 'list_id']
+    )
+
+    add_list_member = bind_api(
+        path = '/lists/members/create.json',
+        method = 'POST',
+        payload_type = 'list',
+        allowed_param = ['screen_name', 'user_id', 'owner_screen_name', 'owner_id', 'slug', 'list_id'],
+        require_auth = True
+    )
+
+    remove_list_member = bind_api(
+        path = '/lists/members/destroy.json',
+        method = 'POST',
+        payload_type = 'list',
+        allowed_param = ['screen_name', 'user_id', 'owner_screen_name', 'owner_id', 'slug', 'list_id'],
+        require_auth = True
+    )
+
+    list_members = bind_api(
+        path = '/lists/members.json',
+        payload_type = 'user', payload_list = True,
+        allowed_param = ['owner_screen_name', 'slug', 'list_id', 'owner_id', 'cursor']
+    )
+
+    show_list_member = bind_api(
+        path = '/lists/members/show.json',
+        payload_type = 'user',
+        allowed_param = ['list_id', 'slug', 'user_id', 'screen_name', 'owner_screen_name', 'owner_id']
+    )
+
+    subscribe_list = bind_api(
+        path = '/lists/subscribers/create.json',
+        method = 'POST',
+        payload_type = 'list',
+        allowed_param = ['owner_screen_name', 'slug', 'owner_id', 'list_id'],
+        require_auth = True
+    )
+
+    unsubscribe_list = bind_api(
+        path = '/lists/subscribers/destroy.json',
+        method = 'POST',
+        payload_type = 'list',
+        allowed_param = ['owner_screen_name', 'slug', 'owner_id', 'list_id'],
+        require_auth = True
+    )
+
+    list_subscribers = bind_api(
+        path = '/lists/subscribers.json',
+        payload_type = 'user', payload_list = True,
+        allowed_param = ['owner_screen_name', 'slug', 'owner_id', 'list_id', 'cursor']
+    )
+
+    show_list_subscriber = bind_api(
+        path = '/lists/subscribers/show.json',
+        payload_type = 'user',
+        allowed_param = ['owner_screen_name', 'slug', 'screen_name', 'owner_id', 'list_id', 'user_id']
+    )
+
+    """ trends/available """
+    trends_available = bind_api(
+        path = '/trends/available.json',
+        payload_type = 'json'
+    )
+
+    trends_place = bind_api(
+        path = '/trends/place.json',
+        payload_type = 'json',
+        allowed_param = ['id', 'exclude']
+    )
+
+    trends_closest = bind_api(
+        path = '/trends/closest.json',
+        payload_type = 'json',
+        allowed_param = ['lat', 'long']
+    )
+
+    """ search """
+    search = bind_api(
+        path = '/search/tweets.json',
+        payload_type = 'search_results',
+        allowed_param = ['q', 'lang', 'locale', 'since_id', 'geocode', 'max_id', 'since', 'until', 'result_type', 'count', 'include_entities', 'from', 'to', 'source']
+    )
+
+    """ trends/daily """
+    trends_daily = bind_api(
+        path = '/trends/daily.json',
+        payload_type = 'json',
+        allowed_param = ['date', 'exclude']
+    )
+
+    """ trends/weekly """
+    trends_weekly = bind_api(
+        path = '/trends/weekly.json',
+        payload_type = 'json',
+        allowed_param = ['date', 'exclude']
+    )
+
+    """ geo/reverse_geocode """
+    reverse_geocode = bind_api(
+        path = '/geo/reverse_geocode.json',
+        payload_type = 'place', payload_list = True,
+        allowed_param = ['lat', 'long', 'accuracy', 'granularity', 'max_results']
+    )
+
+    """ geo/id """
+    geo_id = bind_api(
+        path = '/geo/id/{id}.json',
+        payload_type = 'place',
+        allowed_param = ['id']
+    )
+
+    """ geo/search """
+    geo_search = bind_api(
+        path = '/geo/search.json',
+        payload_type = 'place', payload_list = True,
+        allowed_param = ['lat', 'long', 'query', 'ip', 'granularity', 'accuracy', 'max_results', 'contained_within']
+    )
+
+    """ geo/similar_places """
+    geo_similar_places = bind_api(
+        path = '/geo/similar_places.json',
+        payload_type = 'place', payload_list = True,
+        allowed_param = ['lat', 'long', 'name', 'contained_within']
+    )
+
+    """ help/languages.json """
+    supported_languages = bind_api(
+        path = '/help/languages.json',
+        payload_type = 'json',
+        require_auth = True
+    )
+
+    """ help/configuration """
+    configuration = bind_api(
+        path = '/help/configuration.json',
+        payload_type = 'json',
+        require_auth = True
+    )
+
+    """ Internal use only """
+    @staticmethod
+    def _pack_image(filename, max_size, form_field="image", f=None):
         """Pack image from file into multipart-formdata post body"""
         # image must be less than 700kb in size
-        try:
-            if os.path.getsize(filename) > (max_size * 1024):
+        if f == None:
+            try:
+                if os.path.getsize(filename) > (max_size * 1024):
+                    raise TweepError('File is too big, must be less than 700kb.')
+            except os.error:
+                raise TweepError('Unable to access file')
+
+            # build the mulitpart-formdata body
+            fp = open(filename, 'rb')
+        else:
+            f.seek(0, 2) # Seek to end of file
+            if f.tell() > (max_size * 1024):
                 raise TweepError('File is too big, must be less than 700kb.')
-        except os.error, e:
-            raise TweepError('Unable to access file')
+            f.seek(0) # Reset to beginning of file
+            fp = f
 
         # image must be gif, jpeg, or png
         file_type = mimetypes.guess_type(filename)
@@ -469,12 +732,12 @@ class API(object):
         if file_type not in ['image/gif', 'image/jpeg', 'image/png']:
             raise TweepError('Invalid file type for image: %s' % file_type)
 
-        # build the mulitpart-formdata body
-        fp = open(filename, 'rb')
+
+
         BOUNDARY = 'Tw3ePy'
         body = []
         body.append('--' + BOUNDARY)
-        body.append('Content-Disposition: form-data; name="image"; filename="%s"' % filename)
+        body.append('Content-Disposition: form-data; name="%s"; filename="%s"' % (form_field, filename))
         body.append('Content-Type: %s' % file_type)
         body.append('')
         body.append(fp.read())
@@ -486,8 +749,7 @@ class API(object):
         # build headers
         headers = {
             'Content-Type': 'multipart/form-data; boundary=Tw3ePy',
-            'Content-Length': len(body)
+            'Content-Length': str(len(body))
         }
 
         return headers, body
-

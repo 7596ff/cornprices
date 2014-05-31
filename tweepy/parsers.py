@@ -1,214 +1,97 @@
 # Tweepy
-# Copyright 2009 Joshua Roesslein
-# See LICENSE
+# Copyright 2009-2010 Joshua Roesslein
+# See LICENSE for details.
 
-from datetime import datetime
+from tweepy.models import ModelFactory
+from tweepy.utils import import_simplejson
+from tweepy.error import TweepError
 
-from . models import models
 
-try:
-    import json #Python >= 2.6
-except ImportError:
-    try:
-        import simplejson as json #Python < 2.6
-    except ImportError:
+class Parser(object):
+
+    def parse(self, method, payload):
+        """
+        Parse the response payload and return the result.
+        Returns a tuple that contains the result data and the cursors
+        (or None if not present).
+        """
+        raise NotImplementedError
+
+    def parse_error(self, payload):
+        """
+        Parse the error message from payload.
+        If unable to parse the message, throw an exception
+        and default error message will be used.
+        """
+        raise NotImplementedError
+
+
+class RawParser(Parser):
+
+    def __init__(self):
+        pass
+
+    def parse(self, method, payload):
+        return payload
+
+    def parse_error(self, payload):
+        return payload
+
+
+class JSONParser(Parser):
+
+    payload_format = 'json'
+
+    def __init__(self):
+        self.json_lib = import_simplejson()
+
+    def parse(self, method, payload):
         try:
-            from django.utils import simplejson as json #Google App Engine
-        except ImportError:
-            raise ImportError, "Can't load a json library"
+            json = self.json_lib.loads(payload)
+        except Exception as e:
+            raise TweepError('Failed to parse JSON payload: %s' % e)
 
-
-def parse_json(data, api):
-
-    return json.loads(data)
-
-
-def parse_return_true(data, api):
-
-    return True
-
-
-def parse_none(data, api):
-
-    return None
-
-
-def parse_error(data):
-
-    return json.loads(data)['error']
-
-
-def _parse_datetime(str):
-
-    return datetime.strptime(str, '%a %b %d %H:%M:%S +0000 %Y')
-
-
-def _parse_search_datetime(str):
-
-    return datetime.strptime(str, '%a, %d %b %Y %H:%M:%S +0000')
-
-
-def _parse_html_value(html):
-
-    return html[html.find('>')+1:html.rfind('<')]
-
-
-def _parse_a_href(atag):
-
-    return atag[atag.find('"')+1:atag.find('>')-1]
-
-
-def _parse_user(obj, api):
-
-    user = models['user']()
-    user._api = api
-    for k, v in obj.items():
-        if k == 'created_at':
-            setattr(user, k, _parse_datetime(v))
-        elif k == 'status':
-            setattr(user, k, _parse_status(v, api))
-        elif k == 'following':
-            # twitter sets this to null if it is false
-            if v is True:
-                setattr(user, k, True)
-            else:
-                setattr(user, k, False)
+        needsCursors = method.parameters.has_key('cursor')
+        if needsCursors and isinstance(json, dict) and 'previous_cursor' in json and 'next_cursor' in json:
+            cursors = json['previous_cursor'], json['next_cursor']
+            return json, cursors
         else:
-            setattr(user, k, v)
-    return user
+            return json
 
-
-def parse_user(data, api):
-
-    return _parse_user(json.loads(data), api)
-
-
-def parse_users(data, api):
-
-    users = []
-    for obj in json.loads(data):
-        users.append(_parse_user(obj, api))
-    return users
-
-
-def _parse_status(obj, api):
-
-    status = models['status']()
-    status._api = api
-    for k, v in obj.items():
-        if k == 'user':
-            user = _parse_user(v, api)
-            setattr(status, 'author', user)
-            setattr(status, 'user', user)  # DEPRECIATED
-        elif k == 'created_at':
-            setattr(status, k, _parse_datetime(v))
-        elif k == 'source':
-            setattr(status, k, _parse_html_value(v))
-            setattr(status, 'source_url', _parse_a_href(v))
+    def parse_error(self, payload):
+        error = self.json_lib.loads(payload)
+        if error.has_key('error'):
+            return error['error']
         else:
-            setattr(status, k, v)
-    return status
+            return error['errors']
 
 
-def parse_status(data, api):
+class ModelParser(JSONParser):
 
-    return _parse_status(json.loads(data), api)
+    def __init__(self, model_factory=None):
+        JSONParser.__init__(self)
+        self.model_factory = model_factory or ModelFactory
 
+    def parse(self, method, payload):
+        try:
+            if method.payload_type is None: return
+            model = getattr(self.model_factory, method.payload_type)
+        except AttributeError:
+            raise TweepError('No model for this payload type: %s' % method.payload_type)
 
-def parse_statuses(data, api):
-
-    statuses = []
-    for obj in json.loads(data):
-        statuses.append(_parse_status(obj, api))
-    return statuses
-
-
-def _parse_dm(obj, api):
-
-    dm = models['direct_message']()
-    dm._api = api
-    for k, v in obj.items():
-        if k == 'sender' or k == 'recipient':
-            setattr(dm, k, _parse_user(v, api))
-        elif k == 'created_at':
-            setattr(dm, k, _parse_datetime(v))
+        json = JSONParser.parse(self, method, payload)
+        if isinstance(json, tuple):
+            json, cursors = json
         else:
-            setattr(dm, k, v)
-    return dm
+            cursors = None
 
-
-def parse_dm(data, api):
-
-    return _parse_dm(json.loads(data), api)
-
-
-def parse_directmessages(data, api):
-
-    directmessages = []
-    for obj in json.loads(data):
-        directmessages.append(_parse_dm(obj, api))
-    return directmessages
-
-
-def parse_friendship(data, api):
-
-    relationship = json.loads(data)['relationship']
-
-    # parse source
-    source = models['friendship']()
-    for k, v in relationship['source'].items():
-        setattr(source, k, v)
-
-    # parse target
-    target = models['friendship']()
-    for k, v in relationship['target'].items():
-        setattr(target, k, v)
-
-    return source, target
-
-
-def _parse_saved_search(obj, api):
-
-    ss = models['saved_search']()
-    ss._api = api
-    for k, v in obj.items():
-        if k == 'created_at':
-            setattr(ss, k, _parse_datetime(v))
+        if method.payload_list:
+            result = model.parse_list(method.api, json)
         else:
-            setattr(ss, k, v)
-    return ss
+            result = model.parse(method.api, json)
 
-
-def parse_saved_search(data, api):
-
-    return _parse_saved_search(json.loads(data), api)
-
-
-def parse_saved_searches(data, api):
-
-    saved_searches = []
-    saved_search = models['saved_search']()
-    for obj in json.loads(data):
-        saved_searches.append(_parse_saved_search(obj, api))
-    return saved_searches
-
-
-def _parse_search_result(obj, api):
-
-    result = models['search_result']()
-    for k, v in obj.items():
-        if k == 'created_at':
-            setattr(result, k, _parse_search_datetime(v))
+        if cursors:
+            return result, cursors
         else:
-            setattr(result, k, v)
-    return result
-
-
-def parse_search_results(data, api):
-
-    results = json.loads(data)['results']
-    result_objects = []
-    for obj in results:
-        result_objects.append(_parse_search_result(obj, api))
-    return result_objects
+            return result
 
