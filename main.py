@@ -11,6 +11,7 @@ import urllib
 import re
 
 from tweepy import *
+from google.appengine.api import users
 
 JINJA_ENVIRONMENT = jinja2.Environment(
 	loader     = jinja2.FileSystemLoader(os.path.dirname(__file__)),
@@ -35,8 +36,27 @@ def tweet(status):
 
 class MainHandler(webapp2.RequestHandler):
 	def get(self):
+		user = users.get_current_user()
+		disabled = ""
+
+		if users.get_current_user():
+			url = users.create_logout_url(self.request.uri)
+			url_linktext = 'Hello, ' + user.nickname() + '. Logout'
+			if user.nickname() != "brendan10211":
+				disabled = "disabled"
+		else:
+			url = users.create_login_url(self.request.uri)
+			url_linktext = 'Hello, guest. Login'
+			disabled = "disabled"
+
+		template_values = {
+			'url': url,
+			'url_linktext': url_linktext,
+			'disabled': disabled,
+		}
+
 		template = JINJA_ENVIRONMENT.get_template('index.html')
-		self.response.write(template.render())
+		self.response.write(template.render(template_values))
 
 class sendTweet(webapp2.RequestHandler):
 	def post(self):

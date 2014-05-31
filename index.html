@@ -3,8 +3,9 @@
 	</head>
 	<body>
 		<h3>cornprices</h3>
+		<a href={{ url }}>{{ url_linktext }}</a>
 		<form role="form" action="/tweet" method="post">
-			<input type="submit" value="tweet" />
+			<input type="submit" value="tweet" {{ disabled }} />
 		</form>
 	</body>
 </html>
