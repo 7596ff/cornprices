@@ -11,8 +11,6 @@ handlers:
 
 - url: .*
   script: main.app
-
-- url: /tweet
   login: admin
 
 libraries:
