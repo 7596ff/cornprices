@@ -1,4 +1,8 @@
 cron:
 - description: tweet corn price
   url: /tweet
-  schedule: every 30 minutes synchronized
+  schedule: every day 10:00
+
+- description: tweet corn price 2
+  url: /tweet
+  schedule: every day 22:00
