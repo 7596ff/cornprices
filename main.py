@@ -59,7 +59,7 @@ class MainHandler(webapp2.RequestHandler):
 		self.response.write(template.render(template_values))
 
 class sendTweet(webapp2.RequestHandler):
-	def post(self):
+	def get(self):
 		site_ = urllib.urlopen("http://www.quotecorn.com/")
 		site = site_.read()
 		site_.close()
