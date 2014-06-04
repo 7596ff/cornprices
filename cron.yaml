@@ -1,10 +1,5 @@
 cron:
 - description: tweet corn price
   url: /tweet
-  schedule: every day 10:00
-  timezone: America/New_York
-
-- description: tweet corn price 2
-  url: /tweet
-  schedule: every day 22:00
+  schedule: every 30 minutes from 00:00 to 23:30
   timezone: America/New_York
