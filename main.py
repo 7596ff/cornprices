@@ -78,7 +78,7 @@ class sendTweet(webapp2.RequestHandler):
 		logging.info(updated)
 
 		try:
-			tweet(price + " cents as of " + updated)
+			tweet(price + " (cents or dollars) as of " + updated)
 		except TweepError as te:
 			logging.info(te)
 
