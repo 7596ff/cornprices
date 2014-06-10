@@ -1,5 +1,5 @@
 cron:
 - description: tweet corn price
   url: /tweet
-  schedule: every 30 minutes from 00:00 to 23:30
+  schedule: every 6 hours from 00:00 to 23:30
   timezone: America/New_York

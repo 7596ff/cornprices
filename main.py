@@ -77,10 +77,11 @@ class sendTweet(webapp2.RequestHandler):
 		logging.info(price)
 		logging.info(updated)
 
-		try:
-			tweet(price + " (cents or dollars) as of " + updated)
-		except TweepError as te:
-			logging.info(te)
+		if price != "0.00":
+			try:
+				tweet(price + " (cents or dollars) as of " + updated)
+			except TweepError as te:
+				logging.info(te)
 
 		self.redirect("/")
 
